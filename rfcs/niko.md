@@ -68,6 +68,18 @@ This Rust helper function may panic. Lucet would like to be able to catch this
 panic from the Rust root frame. They would like to have the foreign frames
 "gracefully unwind". The foreign frames themselves may contain destructors.
 
+> XXX statement from Adam on destructors:
+
+> We want to uphold the property that destructors run on any Rust frames that may
+> exist when there's either a panic in a Rust hostcall, or when the Wasm guest
+> code faults. Whether the Wasm frames get unwound or just dropped is irrelevant
+> at this point, because as Niko mentioned there are no destructors on those
+> frames, just enough call frame information to let the unwinder do its thing.
+
+> XXX ...my mistake. Foreign frames will _not_ contain destructors. (The
+> mention "landing pads" should still be removed, though; that's a platform
+> implementation detail, I think.)
+
 Moreover, Lucet executes only on a narrow range of platforms:
 
 * XXX details
