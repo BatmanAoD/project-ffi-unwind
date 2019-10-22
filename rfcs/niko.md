@@ -66,7 +66,8 @@ two Rust frames:
 
 This Rust helper function may panic. Lucet would like to be able to catch this
 panic from the Rust root frame. They would like to have the foreign frames
-"gracefully unwind". The foreign frames themselves may contain destructors.
+"gracefully unwind". However, the foreign frames themselves do not contain any
+destructors; they simply need to be "skipped over".
 
 > XXX statement from Adam on destructors:
 
@@ -75,10 +76,6 @@ panic from the Rust root frame. They would like to have the foreign frames
 > code faults. Whether the Wasm frames get unwound or just dropped is irrelevant
 > at this point, because as Niko mentioned there are no destructors on those
 > frames, just enough call frame information to let the unwinder do its thing.
-
-> XXX ...my mistake. Foreign frames will _not_ contain destructors. (The
-> mention "landing pads" should still be removed, though; that's a platform
-> implementation detail, I think.)
 
 Moreover, Lucet executes only on a narrow range of platforms:
 
@@ -93,11 +90,11 @@ aborts or `longjmp` somewhere. The `mozjpeg-rust` crates implements this
 callback to `panic!` instead, unwinding from the Rust callback into C, and then
 from C back into Rust.
 
-> XXX _this_ use-case does _not_ require destructors.
+> XXX this use-case also does involve foreign frames with destructors.
 
 ### lua bindings and longjmp
 
-Although longjmp/setjmp are not directly in scope for this group, there is an
+Although `longjmp`/`setjmp` are not directly in scope for this group, there is an
 interesting interaction that was uncovered and is worth documenting. On Windows
 targets specifically, longjmp is implemented using the same "Structured
 Exception Handling" (SEH) mechanism that is used for C++ exceptions and other
@@ -120,36 +117,29 @@ This RFC proposes three separate but related items:
   in [rust-lang/rust#52652].
 * Second, to introduce the "C unwind" ABI, with virtually all details
   (but not quite all) left as "to be determined".
-* The **intent** of this ABI is to permit Rust panics to
-  be "translated" into a "platform-native" unwinding mechanism, though
-  the specific mechanism is dependent on the target platform or other
-  compiler options.
-* (In practice, this translation is a no-op, since Rust panics always use the
-  native mechanism, but this is explicitly not required for the future.)
-* Projects currently relying on unwinding via the "C" ABI should be migrated to
-  this new "C unwind" ABI, which will not abort on unwinding. The actual
-  behavior is not specified, but any changes to the behavior or the
-  specification will preserve the intent to permit safe unwinding.
+  * The **intent** of this ABI is to permit Rust panics to be "translated" into
+    a "platform-native" unwinding mechanism, though the specific mechanism is
+    dependent on the target platform or other compiler options.
+  * (In practice, this translation is a no-op, since Rust panics always use the
+    native mechanism, but this is explicitly not required for the future.)
+  * Projects currently relying on unwinding via the "C" ABI should be migrated
+    to this new "C unwind" ABI, which will not abort on unwinding. The actual
+    behavior is not specified, but any changes to the behavior or the
+    specification will preserve the intent to permit safe unwinding.
 * Finally, to create a "project group" with the purpose of designing subsequent
   RFCs to flesh out the details of the "C unwind" ABI
-* The "project group" term is newly introduced: it is a specific
-  type of working group whose goal is to flesh out a particular proposal or
-  complete a project.
-* This working group plans to specify how "C unwind" works on major platforms.
-* The primary goal is to enable Rust panics to propagate safely across foreign native frames.
-  > XXX We've been using "native frames" to mean non-Rust platform-native
-  > (e.g. C) frames; but, as gnzlbg points out, Rust frames are themselves
-  > "native" (once compiled), and, confusingly, "native" and "foreign" are
-  > rougly synonymous in the sense we've been using them. Perhaps instead
-  > we should refer to the "native unwind mechanism" and "foreign
-  > (language) frames".
-* A future goal may be to enable foreign exceptions to propagate across Rust
-  frames.
-* We do not plan to allow catching or throwing foreign exceptions from Rust
-  code
+  * The "project group" term is newly introduced: it is a specific type of
+    working group whose goal is to flesh out a particular proposal or complete
+    a project.
+  * This working group plans to specify how "C unwind" works on major
+    platforms.
+  * The primary goal is to enable Rust panics to propagate safely across
+    foreign frames.
+  * A future goal may be to enable foreign exceptions to propagate across Rust
+    frames.
+  * We do not plan to allow catching or throwing foreign exceptions from Rust
+    code
 
-
-The first two goals work together.
 The goal of introducing the "C unwind" ABI is simple: it allows
 existing projects to migrate to the newer ABI and continue to work "as
 well as they ever did" or better, since they will avoid certain optimizations
@@ -172,11 +162,16 @@ expect the "project group" to largely define its own structure.
 
 ## The "C" ABI and unwinding
 
-Functions declared with the "C" ABI are not permitted to unwind.  In
-general, any attempt to unwind constitutes [Undefined Behavior], which
-means that the program may do arbitrary things. Rust functions defined
-with the "C" ABI are guaranteed to abort if an unwind attempts to
-cross the function boundary.
+Functions declared with the "C" ABI are not permitted to unwind. Rust functions
+defined with the "C" ABI are guaranteed to abort if a `panic` attempts to cross
+the function boundary.
+
+> XXX not sure why the draft originally mentioned UB here; with the abort,
+> I don't think there's any UB in Rust-world.
+
+> XXX "forced exceptions" (such as `longjmp` on Windows) don't trigger the
+> abort. Can _any_ foreign exceptions trigger the `abort`? See discussion in
+> https://github.com/rust-lang/rust/issues/65646
 
 ### Invoking foreign functions
 
