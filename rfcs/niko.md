@@ -97,6 +97,8 @@ not contain destructors. At minimum, this group should take the behavior of
 longjmp into account; if it is easy to do, we may also introduce mechanisms or
 RFCs that help to specify the use of longjmp in particular cases.
 
+> XXX refer to Alex Crichton's compiler PR https://github.com/rust-lang/rust/pull/48572?
+
 # Our proposal
 [our-proposal]: #our-proposal
 
@@ -143,10 +145,11 @@ that are incorrect for their use cases. In the meantime, we can remove an
 instance of undefined behavior from the language by stabilizing the
 abort-on-unwind behavior fior the "C" ABI.
 
-Simply taking that step, however, does not address the root problem of
-"de facto" reliance on undefined behavior. We've already seen that projects can and do
-rely on unwinding. We therefore consider the formation of the "project group"
-to be 
+Simply taking that step, however, does not address the root problem of "de
+facto" reliance on undefined behavior. We've already seen that projects can and
+do rely on unwinding. We therefore consider the formation of the "project
+group" as a formal statement of intent that Rust will support cross-language
+unwinding.
 
 The majority of this RFC is spent on describing the "C unwind" ABI and
 its details. We do note a few details about the "project group", but we
@@ -281,6 +284,9 @@ then it would be required that some form of "interop conversion" be
 defined as well.
 
 # Workings of the "ffi-unwind" project group
+
+> XXX link to project-group repo here; but only if it has been cloned into
+> `rust-lang`
 
 ## What is a "project group"?
 
