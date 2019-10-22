@@ -162,30 +162,32 @@ expect the "project group" to largely define its own structure.
 
 ## The "C" ABI and unwinding
 
-Functions declared with the "C" ABI are not permitted to unwind. Rust functions
-defined with the "C" ABI are guaranteed to abort if a `panic` attempts to cross
-the function boundary.
-
-> XXX not sure why the draft originally mentioned UB here; with the abort,
-> I don't think there's any UB in Rust-world.
+Functions declared with the "C" ABI are not permitted to unwind. Unwinding out
+of these functions constitutes [Undefined Behavior], which means that the
+program may do arbitrary things. Rust functions defined with the "C" ABI are
+guaranteed to abort if a `panic` attempts to cross the function boundary; this
+behavior is well-defined.
 
 > XXX "forced exceptions" (such as `longjmp` on Windows) don't trigger the
 > abort. Can _any_ foreign exceptions trigger the `abort`? See discussion in
 > https://github.com/rust-lang/rust/issues/65646
 
+> XXX ...but also, `longjmp` style unwinding is _not_ UB, contrary to the
+> second sentence here.
+
 ### Invoking foreign functions
 
-This means, for example, that if you invoke a native "C" function and it
-attempts to unwind (for example, because it invokes C++ code which contains a `throw`),
-this result is [Undefined Behavior]:
+If you invoke a foreign function using `extern "C"` and it attempts to unwind
+(for example, because it invokes C++ code which contains a `throw`), your
+program has [Undefined Behavior]:
 
 ```rust
-extern "C" { fn fn_that_is_not_supposed_to_unwind(); }
+extern "C" { fn should_not_unwind(); }
 
 fn foo() {
-    // If `fn_that_is_not_supposed_to_unwind` should actually unwind, 
-    // the result is undefined behavior.
-    fn_that_is_not_supposed_to_unwind();
+    // If `should_not_unwind` actually does unwind,
+    // it causes undefined behavior.
+    should_not_unwind();
 }
 ```
 
@@ -197,7 +199,7 @@ unwind over the function boundary will result in an abort:
 ```rust
 extern "C" fn foo() {
     // This panic will trigger an unwind that tries to pass over an extern "C" 
-    // boundary. It will trigger an abort.
+    // boundary, which will automatically trigger an abort.
     panic!();
 }
 ```
@@ -211,11 +213,14 @@ mechanism used by other systems programming language implementations,
 such as C++.
 
 **WARNING:** The specifiation for the "C unwind" ABI is being actively
-developed and is currently very incomplete. In particular, it is **not
-currently possible to unwind between Rust and non-Rust frames in a
-fully specified fashion**. If you would like to learn more about the
-specification effort, or to get involved, please visit the repository
-for the [ffi-unwind project], which contains a lot more details.
+developed and is currently very incomplete. In particular, **the behavior of an
+unwinding operation between Rust and non-Rust frames is not fully specified.**
+If you would like to learn more about the specification effort, or to get
+involved, please visit the repository for the [ffi-unwind project], which
+contains a lot more details.
+
+> XXX maybe just refer to the 'project group' section rather than linking to
+> the repo here?
 
 # Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -224,31 +229,29 @@ for the [ffi-unwind project], which contains a lot more details.
 
 In general, the behavior of both the "C" and the "C unwind" ABIs is
 highly dependent on the target triple and other switches that are
-given to the Rust compiler. Therefore, there isn't a lot that can be
-said that is fully independent of the platform.
+given to the Rust compiler. Most of the details are therefore implementation-
+and platform-specific.
 
 ## Relationship between "C" and "C unwind"
 
-There is no a priori relationship between the "C" and "C unwind" ABIs.
-However, on most platforms, it is expected that the "C" ABI would be
-"compatible" with the "C unwind" ABI. In other words, consider some C
-function `foo` that does not unwind: on most platforms, such a
-function could safely be invoked with either the "C" or the "C unwind"
-ABI. 
+There is no *a priori* relationship between the "C" and "C unwind" ABIs.
+However, it is expected that on most platforms, foreign functions that do not
+unwind could safely be invoked with either the "C" or the "C unwind" ABI. 
 
-However, we do not guarantee such interop: this leaves room for
-platforms where unwinding is transmitted through a special return
-value or other such mechanism. (XXX do any such platforms exist? There
-is the C++ proposal)
+Rust, however, does not guarantee any particular compatibility between the two
+ABIs; this leaves room for platforms where unwinding is transmitted through a
+special return value or other such mechanism.
+
+> Niko XXX do any such platforms exist? There is the C++ proposal
+> XXX also a Cranelift proposal linked in RFC #2699.
 
 ## Typing and interconversion
 
 Function pointer types declared with the "C unwind" and "C" ABIs are
-generally incompatible, just as they would be with any other two ABIs
-(e.g., "stdcall" and "C"). It is not possible, for example, to cast a
-`extern "C" fn()` value into a `extern "C unwind" fn()` value. It is
-however possible to convert between ABIs by using a closure expression
-(which is then coerced into a standalone function):
+incompatible, just as any other two ABIs are (e.g., "stdcall" and "C"). It is
+not possible, for example, to cast a `extern "C" fn()` value into a `extern "C
+unwind" fn()` value. It is however possible to convert between ABIs by using a
+closure expression (which is then coerced into a standalone function):
 
 ```rust
 fn convert(f: extern "C" fn()) -> extern "C unwind" fn() {
@@ -261,11 +264,11 @@ fn convert(f: extern "C" fn()) -> extern "C unwind" fn() {
 It is an explicit goal *not* to constrain or specify the unwinding
 mechanism used by Rust functions with the standard Rust ABI. We do
 require, however, that *some* mechanism exists to "convert" a Rust
-panic into the native unwinding mechanism when crossing over the "C
-unwind" ABI. Similarly, when a Rust function invokes a "C panic"
+panic into the native unwinding mechanism when exposed by the `"C
+unwind"` ABI. Similarly, when a Rust function invokes a `"C unwind"`
 function, some mechanism must exist to "recover" a Rust panic on the
 other side. In other words, a **Rust panic** must be able to unwind
-across a "C unwind" boundary in a seamless fashion.
+across a `"C unwind"` boundary in a seamless fashion.
 
 Therefore, the following program is guaranteed to work as expected:
 
@@ -287,7 +290,7 @@ if in the future:
 * we specify the behavior of "C unwind" on some platform
 * Rust's panic mechanism on that platform diverges from this behavior
 
-then it would be required that some form of "interop conversion" be
+then it will be required that some form of "interop conversion" be
 defined as well.
 
 # Workings of the "ffi-unwind" project group
@@ -509,5 +512,6 @@ The project group will of course explore the full specification of the "C unwind
 Other future possibilities 
 
 [Undefined Behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+> XXX move project repo to rust-lang before posting RFC?
 [ffi-unwind project]: https://github.com/nikomatsakis/project-ffi-unwind
 [rust-lang/rust#52652]: https://github.com/rust-lang/rust/issues/52652
